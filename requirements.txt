@@ -1,0 +1,19 @@
+# STT
+faster-whisper==1.0.3
+
+# Audio
+sounddevice==0.4.6
+soundfile==0.12.1
+pydub==0.25.1
+
+# NLP fuzzy
+rapidfuzz==3.9.7
+
+# UI
+streamlit==1.38.0
+
+# TTS compatible 3.12
+gTTS==2.5.1
+
+# Numpy
+numpy==2.1.1

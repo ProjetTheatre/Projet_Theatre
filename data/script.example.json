@@ -1,0 +1,11 @@
+{
+  "title": "Roméo & Juliette - Scène de répétition",
+  "language": "fr",
+  "ai_character": "JULIETTE",
+  "lines": [
+    {"speaker": "JULIETTE", "text": "Ô Roméo, Roméo ! Pourquoi es-tu Roméo ?"},
+    {"speaker": "ROMEO",    "text": "Renie ton père et abjure ton nom."},
+    {"speaker": "JULIETTE", "text": "Ou, si tu ne le veux pas, jure de m'aimer."},
+    {"speaker": "ROMEO",    "text": "Je prends au mot : appelle-moi seulement amour."}
+  ]
+}
