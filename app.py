@@ -4,6 +4,7 @@ import time
 import os
 from pathlib import Path
 import tempfile
+from audio_recorder_streamlit import audio_recorder
 
 from config import (
     DEVICE, LANGUAGE, WHISPER_MODEL_SIZE,
@@ -13,13 +14,15 @@ from config import (
 from src.script_runner import ScriptRunner, parse_txt_script, parse_docx_script
 from src.stt import SpeechRecognizer
 from src.tts_synth import VoiceSynth
-from src.audio_utils import record_to_wav
 
 # ============================
 # UI CONFIG
 # ============================
 st.set_page_config(page_title="IA partenaire théâtre", page_icon="🎭", layout="centered")
-st.title("🎭 IA partenaire de répétition — V2 (fluide + multi-personnages)")
+st.title("🎭 IA partenaire de répétition — V2 (mobile compatible)")
+
+# Crée le dossier temporaire
+Path("temp").mkdir(exist_ok=True)
 
 # ============================
 # UPLOAD SCRIPT
@@ -30,7 +33,7 @@ if not script_file:
     st.info("Dépose un script pour commencer (format: JSON, TXT ou DOCX).")
     st.stop()
 
-# Parse en fonction du type
+# Parse selon le type de fichier
 if script_file.name.endswith(".json"):
     data = json.load(script_file)
 elif script_file.name.endswith(".txt"):
@@ -56,9 +59,9 @@ mode = st.radio("Mode :", ["Performance (score global à la fin)", "Répétition
 # ============================
 # TTS BACKEND + PARAMS
 # ============================
-backend = st.selectbox("Synthèse vocale IA (TTS)", ["gtts"])  # on garde simple (gtts); tu peux remettre hf-api si besoin
+backend = st.selectbox("Synthèse vocale IA (TTS)", ["gtts"])  # gTTS = léger et compatible cloud
 custom_voice_path = None
-hf_token = None
+hf_token = st.secrets.get("HF_TOKEN", "")
 
 # Init STT/TTS
 stt = SpeechRecognizer(model_size=WHISPER_MODEL_SIZE, device=DEVICE, language=LANGUAGE)
@@ -86,7 +89,6 @@ def pregenerate_ai_audio():
     total = len(ai_indexes)
     for k, i in enumerate(ai_indexes, start=1):
         line = runner.lines[i]
-        # Fichier déterministe pour éviter de régénérer
         base = f"{i:04d}_{line.speaker}"
         outfile = os.path.join(st.session_state.cache_dir, base + (".mp3" if backend == "gtts" else ".wav"))
         if not os.path.exists(outfile):
@@ -104,8 +106,6 @@ st.button("⚡ Précharger toutes les répliques IA", on_click=pregenerate_ai_au
 def play_one_ai_line(i):
     """Fait parler l'IA (lecture auto + attend la fin de la réplique)"""
     line = runner.lines[i]
-
-    # utilise le cache si dispo
     outfile = st.session_state.cache_tts.get(i)
     if not outfile:
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3", dir=st.session_state.cache_dir)
@@ -114,14 +114,13 @@ def play_one_ai_line(i):
     else:
         tts.speak(line.text, outfile=outfile, autoplay=True)
 
-    # ⏱️ on estime la durée de la réplique (150 mots/min = 2,5 mots/s)
     words = len(line.text.split())
-    estimated_duration = max(2, words / 2.5)  # durée minimale 2s
+    estimated_duration = max(2, words / 2.5)
     time.sleep(estimated_duration)
+
 def run_scene_automatic():
     scores_buffer = []
     with st.spinner("🎬 La scène se joue automatiquement…"):
-        # On repart de l'index courant
         i = st.session_state.idx
         while i < len(runner.lines):
             line = runner.lines[i]
@@ -129,40 +128,43 @@ def run_scene_automatic():
             st.write(line.text)
 
             if line.speaker != runner.user_character:
-                # IA parle (auto, sans bouton)
                 play_one_ai_line(i)
-                time.sleep(0.5)  # petit temps pour laisser démarrer l'audio
-
+                time.sleep(0.5)
 
             else:
+                # 🎙️ Enregistrement via navigateur (téléphone/PC)
+                st.info("🎤 À toi ! Appuie pour parler puis clique sur 'Valider'")
+                audio_bytes = audio_recorder(text="Appuyer pour parler (max ~6s)")
 
-                # Tour de l'acteur (avec ou sans délai)
+                if not audio_bytes:
+                    st.stop()
 
-                if not st.session_state.direct_mode:
+                if st.button("➡️ Valider l'enregistrement", key=f"val_{i}"):
+                    wav_path = "temp/actor.wav"
+                    with open(wav_path, "wb") as f:
+                        f.write(audio_bytes)
 
-                    st.info("🎤 À toi ! (début dans 2s)")
-                    time.sleep(2)
-                with st.spinner("🎙️ Enregistrement (6s)…"):
-                    wav = record_to_wav("temp/actor.wav", seconds=6)
-                transcript = stt.transcribe(wav)
-                st.caption(f"Vous avez dit : {transcript}")
+                    transcript = stt.transcribe(wav_path)
+                    st.caption(f"Vous avez dit : {transcript}")
 
-                ok, score = runner.validate_actor_line(transcript, threshold=SIMILARITY_THRESHOLD)
-                if mode.startswith("Répétition"):
-                    st.write(f"Similarité : {score:.1f}% (seuil {SIMILARITY_THRESHOLD})")
-                    if ok:
-                        st.success("✅ Réplique validée")
+                    ok, score = runner.validate_actor_line(transcript, threshold=SIMILARITY_THRESHOLD)
+                    if mode.startswith("Répétition"):
+                        st.write(f"Similarité : {score:.1f}% (seuil {SIMILARITY_THRESHOLD})")
+                        if ok:
+                            st.success("✅ Réplique validée")
+                        else:
+                            st.error("❌ Trop différent")
                     else:
-                        st.error("❌ Trop différent")
-                else:
-                    scores_buffer.append(score)
+                        scores_buffer.append(score)
+
+                    i += 1
+                    st.session_state.idx = i
+                    st.rerun()
 
             i += 1
             st.session_state.idx = i
-            # petit buffer pour laisser Streamlit mettre à jour l'UI
             time.sleep(0.3)
 
-    # Fin de scène
     st.success("🏁 Fin de la scène.")
     tts.cleanup()
 
@@ -179,9 +181,6 @@ def run_scene_automatic():
     # ============================
     # 🔁 Bouton de retour au menu
     # ============================
-    # ============================
-    # 🔁 Bouton de retour au menu
-    # ============================
     if "should_reset" not in st.session_state:
         st.session_state.should_reset = False
 
@@ -191,7 +190,6 @@ def run_scene_automatic():
     st.divider()
     st.button("↩️ Revenir au menu principal", on_click=ask_reset)
 
-    # Si le drapeau est activé, on réinitialise tout
     if st.session_state.should_reset:
         for key in ["idx", "results", "cache_tts", "should_reset"]:
             if key in st.session_state:
@@ -200,7 +198,9 @@ def run_scene_automatic():
 
     st.divider()
 
-# Option pour enchaîner directement sans délai entre IA et acteur
+# ============================
+# OPTIONS
+# ============================
 direct_mode = st.checkbox("⏩ Enchaînement direct (sans délai entre les répliques)", value=False)
 st.session_state.direct_mode = direct_mode
 

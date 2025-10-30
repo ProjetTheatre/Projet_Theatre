@@ -1,19 +1,22 @@
-# STT
+# STT (serveur)
 faster-whisper==1.0.3
 
-# Audio
-sounddevice==0.4.6
+# Audio utils (côté serveur)
 soundfile==0.12.1
 pydub==0.25.1
 
-# NLP fuzzy
+# Fuzzy match
 rapidfuzz==3.9.7
 
 # UI
 streamlit==1.38.0
+audio-recorder-streamlit==0.0.8
 
-# TTS compatible 3.12
+# TTS
 gTTS==2.5.1
 
-# Numpy
+# NumPy (ok avec faster-whisper)
 numpy==2.1.1
+
+# Réseau
+requests>=2.32.0
