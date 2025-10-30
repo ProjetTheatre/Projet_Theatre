@@ -1,22 +1,21 @@
-# STT (serveur)
-faster-whisper==1.0.3
-
-# Audio utils (côté serveur)
-soundfile==0.12.1
-pydub==0.25.1
-
-# Fuzzy match
-rapidfuzz==3.9.7
-
 # UI
 streamlit==1.38.0
 audio-recorder-streamlit==0.0.8
 
+# STT (CPU)
+faster-whisper==1.0.3    # ← dépend de av, ok avec py3.11
+ctranslate2==4.6.0
+
+# Audio
+soundfile==0.12.1
+pydub==0.25.1
+
 # TTS
 gTTS==2.5.1
 
-# NumPy (ok avec faster-whisper)
-numpy==2.1.1
-
-# Réseau
+# Fuzzy / utils
+rapidfuzz==3.9.7
 requests>=2.32.0
+
+# Important pour compatibilité roues binaires
+numpy==1.26.4
