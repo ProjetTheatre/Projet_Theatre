@@ -71,14 +71,18 @@ tts = VoiceSynth(backend=backend, language="fr")
 # SESSION STATE
 # ============================
 if "idx" not in st.session_state:
-    st.session_state.idx = 0
+    st.session_state.idx = 0  # index de la réplique courante
 if "results" not in st.session_state:
-    st.session_state.results = []
+    st.session_state.results = []  # scores en mode Performance
 if "cache_dir" not in st.session_state:
     st.session_state.cache_dir = "cache_tts"
     os.makedirs(st.session_state.cache_dir, exist_ok=True)
 if "cache_tts" not in st.session_state:
     st.session_state.cache_tts = {}  # {line_index: outfile_path}
+if "scene_running" not in st.session_state:
+    st.session_state.scene_running = False
+if "should_reset" not in st.session_state:
+    st.session_state.should_reset = False
 
 # ============================
 # PRÉ-GÉNÉRATION TTS (FLUIDITÉ)
@@ -90,21 +94,24 @@ def pregenerate_ai_audio():
     for k, i in enumerate(ai_indexes, start=1):
         line = runner.lines[i]
         base = f"{i:04d}_{line.speaker}"
-        outfile = os.path.join(st.session_state.cache_dir, base + (".mp3" if backend == "gtts" else ".wav"))
+        outfile = os.path.join(
+            st.session_state.cache_dir,
+            base + (".mp3" if backend == "gtts" else ".wav")
+        )
         if not os.path.exists(outfile):
             tts.speak(line.text, outfile=outfile, autoplay=False)
         st.session_state.cache_tts[i] = outfile
         progress.progress(k / total, text=f"Préparation des voix IA… ({k}/{total})")
     progress.empty()
-    st.success("✅ Voix IA prégénérées. La scène sera fluide 👌")
+    st.success("✅ Voix IA prégénérées. La scène sera fluide.")
 
 st.button("⚡ Précharger toutes les répliques IA", on_click=pregenerate_ai_audio)
 
 # ============================
 # LECTURE AUTOMATIQUE DE LA SCÈNE
 # ============================
-def play_one_ai_line(i):
-    """Fait parler l'IA (lecture auto + attend la fin de la réplique)"""
+def play_one_ai_line(i: int):
+    """Fait parler l'IA pour la réplique d'index i."""
     line = runner.lines[i]
     outfile = st.session_state.cache_tts.get(i)
     if not outfile:
@@ -116,68 +123,17 @@ def play_one_ai_line(i):
 
     words = len(line.text.split())
     estimated_duration = max(2, words / 2.5)
-    time.sleep(estimated_duration)
+    if not st.session_state.get("direct_mode", False):
+        time.sleep(estimated_duration)
 
-def run_scene_automatic():
-    scores_buffer = []
-    with st.spinner("🎬 La scène se joue automatiquement…"):
-        i = st.session_state.idx
-        while i < len(runner.lines):
-            line = runner.lines[i]
-            st.subheader(f"{line.speaker}")
-            st.write(line.text)
 
-            if line.speaker != runner.user_character:
-                play_one_ai_line(i)
-                time.sleep(0.5)
-
-            else:   
-                # 🎙️ Enregistrement via navigateur (téléphone/PC)
-                st.info("🎤 À toi ! Appuie pour parler puis clique sur 'Valider'")
-                audio_bytes = audio_recorder(text="Appuyer pour parler (max ~6s)")
-
-                # On n’arrête pas tout, on attend juste que l’utilisateur enregistre quelque chose
-                if audio_bytes:
-                    if st.button("➡️ Valider l'enregistrement", key=f"val_{i}"):
-                        wav_path = "temp/actor.wav"
-                        with open(wav_path, "wb") as f:
-                            f.write(audio_bytes)
-                        # ... suite (transcription, score, etc.)
-                        i += 1
-                        st.session_state.idx = i
-                        st.rerun()
-
-                if st.button("➡️ Valider l'enregistrement", key=f"val_{i}"):
-                    wav_path = "temp/actor.wav"
-                    with open(wav_path, "wb") as f:
-                        f.write(audio_bytes)
-
-                    transcript = stt.transcribe(wav_path)
-                    st.caption(f"Vous avez dit : {transcript}")
-
-                    ok, score = runner.validate_actor_line(transcript, threshold=SIMILARITY_THRESHOLD)
-                    if mode.startswith("Répétition"):
-                        st.write(f"Similarité : {score:.1f}% (seuil {SIMILARITY_THRESHOLD})")
-                        if ok:
-                            st.success("✅ Réplique validée")
-                        else:
-                            st.error("❌ Trop différent")
-                    else:
-                        scores_buffer.append(score)
-
-                    i += 1
-                    st.session_state.idx = i
-                    st.rerun()
-
-            i += 1
-            st.session_state.idx = i
-            time.sleep(0.3)
-
+def show_end_of_scene():
+    """Affiche l'écran de fin de scène + score + bouton de reset."""
     st.success("🏁 Fin de la scène.")
     tts.cleanup()
 
-    if mode.startswith("Performance") and scores_buffer:
-        final_score = round(sum(scores_buffer) / len(scores_buffer), 1)
+    if mode.startswith("Performance") and st.session_state.results:
+        final_score = round(sum(st.session_state.results) / len(st.session_state.results), 1)
         st.subheader("📊 Résultat final")
         st.write(f"Score global : **{final_score}%**")
 
@@ -186,14 +142,9 @@ def run_scene_automatic():
         else:
             st.warning("⚠️ Scène à retravailler un peu.")
 
-    # ============================
-    # 🔁 Bouton de retour au menu
-    # ============================
-    if "should_reset" not in st.session_state:
-        st.session_state.should_reset = False
-
     def ask_reset():
         st.session_state.should_reset = True
+        st.session_state.scene_running = False
 
     st.divider()
     st.button("↩️ Revenir au menu principal", on_click=ask_reset)
@@ -202,9 +153,65 @@ def run_scene_automatic():
         for key in ["idx", "results", "cache_tts", "should_reset"]:
             if key in st.session_state:
                 del st.session_state[key]
+        # on réinitialise aussi les drapeaux
+        st.session_state.scene_running = False
         st.rerun()
 
     st.divider()
+
+
+def run_scene_automatic():
+    """Gère UNE réplique à la fois (AI ou acteur), en fonction de idx."""
+    i = st.session_state.idx
+
+    # Si on a dépassé la dernière réplique, on affiche l'écran de fin
+    if i >= len(runner.lines):
+        show_end_of_scene()
+        return
+
+    line = runner.lines[i]
+
+    with st.spinner("🎬 La scène se joue…"):
+        st.subheader(f"{line.speaker}")
+        st.write(line.text)
+
+        # Cas IA : on fait parler l'IA, puis on passe à la réplique suivante
+        if line.speaker != runner.user_character:
+            play_one_ai_line(i)
+            st.session_state.idx = i + 1
+            st.rerun()
+            return
+
+        # Cas acteur : enregistrement micro
+        st.info("🎤 À toi ! Appuie pour parler puis clique sur 'Valider'")
+        audio_bytes = audio_recorder(text="Appuyer pour parler (max ~6s)")
+
+        # Tant qu'aucun son n'est enregistré, on ne fait rien de plus
+        if not audio_bytes:
+            return
+
+        if st.button("➡️ Valider l'enregistrement", key=f"val_{i}"):
+            wav_path = "temp/actor.wav"
+            with open(wav_path, "wb") as f:
+                f.write(audio_bytes)
+
+            transcript = stt.transcribe(wav_path)
+            st.caption(f"Vous avez dit : {transcript}")
+
+            ok, score = runner.validate_actor_line(transcript, threshold=SIMILARITY_THRESHOLD)
+
+            if mode.startswith("Répétition"):
+                st.write(f"Similarité : {score:.1f}% (seuil {SIMILARITY_THRESHOLD})")
+                if ok:
+                    st.success("✅ Réplique validée")
+                else:
+                    st.error("❌ Trop différent")
+            else:
+                st.session_state.results.append(score)
+
+            # On passe à la réplique suivante
+            st.session_state.idx = i + 1
+            st.rerun()
 
 # ============================
 # OPTIONS
@@ -212,4 +219,11 @@ def run_scene_automatic():
 direct_mode = st.checkbox("⏩ Enchaînement direct (sans délai entre les répliques)", value=False)
 st.session_state.direct_mode = direct_mode
 
-st.button("🎭 Lancer la scène (automatique)", on_click=run_scene_automatic)
+def start_scene():
+    st.session_state.scene_running = True
+
+st.button("🎭 Lancer la scène (automatique)", on_click=start_scene)
+
+# Si la scène est en cours, on affiche/continue la scène
+if st.session_state.scene_running:
+    run_scene_automatic()
