@@ -131,13 +131,21 @@ def run_scene_automatic():
                 play_one_ai_line(i)
                 time.sleep(0.5)
 
-            else:
+            else:   
                 # 🎙️ Enregistrement via navigateur (téléphone/PC)
                 st.info("🎤 À toi ! Appuie pour parler puis clique sur 'Valider'")
                 audio_bytes = audio_recorder(text="Appuyer pour parler (max ~6s)")
 
-                if not audio_bytes:
-                    st.stop()
+                # On n’arrête pas tout, on attend juste que l’utilisateur enregistre quelque chose
+                if audio_bytes:
+                    if st.button("➡️ Valider l'enregistrement", key=f"val_{i}"):
+                        wav_path = "temp/actor.wav"
+                        with open(wav_path, "wb") as f:
+                            f.write(audio_bytes)
+                        # ... suite (transcription, score, etc.)
+                        i += 1
+                        st.session_state.idx = i
+                        st.rerun()
 
                 if st.button("➡️ Valider l'enregistrement", key=f"val_{i}"):
                     wav_path = "temp/actor.wav"
